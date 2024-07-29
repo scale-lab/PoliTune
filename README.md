@@ -4,7 +4,7 @@ This repository provides training scripts for fine-tuning LLMs using our prefere
 
 ## Dataset
 
-The datasets are hosted on the Huggingface hub. There are two preference datasets:
+The datasets are hosted on Hugging Face Hub. There are two preference datasets:
 - [Left-leaning preference dataset](https://huggingface.co/datasets/scale-lab/politune-left)
 - [Right-leaning preference dataset](https://huggingface.co/datasets/scale-lab/politune-right)
 
