@@ -47,4 +47,6 @@ If you use this codebase or the datasets in your work, please cite our paper:
 ```
 
 ## License
-MIT License. See [LICENSE](LICENSE) file
+This repository contains code under two licenses:
+- Original code written by SCALE Lab is licensed under the MIT License (see [LICENSE](LICENSE)).
+- Files derived from Meta Platforms’ code are licensed under the BSD-3-Clause License (see [LICENSE-BSD](LICENSE-BSD)).

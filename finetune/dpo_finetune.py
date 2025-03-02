@@ -1,9 +1,33 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
+# Portions Copyright (c) Meta Platforms, Inc. and affiliates.
+# This source code is licensed under the BSD-style license found in LICENSE-BSD.
 #
-# This source code is licensed under the BSD-style license found in the
-# LICENSE file in the root directory of this source tree.
+# Modifications Copyright (c) SCALE Lab, Brown University.
+# These modifications are licensed under the MIT license (see LICENSE).
 
+import csv
+from finetune.utils import pc_instruction, pc_questions_txt_file, custom_prompts, format_instruction, eval_pc, eval_custom_prompts, clean_output
+from torchtune.modules import KVCache
+from torchtune.data import AlpacaInstructTemplate
+from tqdm import tqdm
+from torchtune.recipe_interfaces import FTRecipeInterface
+from torchtune.modules.peft.peft_utils import (
+    disable_adapter,
+    get_adapter_params,
+    get_merged_lora_ckpt,
+    set_trainable_params,
+    validate_state_dict_for_lora,
+)
+from torchtune.datasets import ConcatDataset
+from torchtune.data import CROSS_ENTROPY_IGNORE_IDX
+from torchtune import config, modules, utils
+from torch.utils.data import DataLoader, DistributedSampler
+from torch.optim import Optimizer
+from torch import nn
+from omegaconf import DictConfig, ListConfig
+import torch
+from warnings import warn
+from typing import Any, Dict, Optional, Tuple
+from functools import partial
 import sys
 import time
 import os
@@ -13,35 +37,6 @@ parent_dir_path = os.path.abspath(os.path.join(dir_path, os.pardir))
 sys.path.insert(0, dir_path)
 sys.path.insert(0, parent_dir_path)
 
-
-
-from functools import partial
-from typing import Any, Dict, Optional, Tuple
-from warnings import warn
-
-import torch
-from omegaconf import DictConfig, ListConfig
-
-from torch import nn
-from torch.optim import Optimizer
-from torch.utils.data import DataLoader, DistributedSampler
-from torchtune import config, modules, utils
-from torchtune.data import CROSS_ENTROPY_IGNORE_IDX
-from torchtune.datasets import ConcatDataset
-from torchtune.modules.peft.peft_utils import (
-    disable_adapter,
-    get_adapter_params,
-    get_merged_lora_ckpt,
-    set_trainable_params,
-    validate_state_dict_for_lora,
-)
-from torchtune.recipe_interfaces import FTRecipeInterface
-from tqdm import tqdm
-
-from torchtune.data import AlpacaInstructTemplate
-from torchtune.modules import KVCache
-from finetune.utils import pc_instruction, pc_questions_txt_file, custom_prompts, format_instruction, eval_pc, eval_custom_prompts, clean_output
-import csv
 
 log = utils.get_logger("DEBUG")
 
@@ -98,7 +93,8 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
             and self._device != torch.device("cpu")
             and not torch.cuda.is_bf16_supported()
         ):
-            raise RuntimeError("Full bf16 training is not supported on this hardware.")
+            raise RuntimeError(
+                "Full bf16 training is not supported on this hardware.")
         # logging attributes
         self._output_dir = cfg.output_dir
         os.makedirs(self._output_dir, exist_ok=True)
@@ -120,22 +116,24 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         self._pc_questions = []
         with open(pc_questions_txt_file, "r") as f:
             for line in f:
-                self._pc_questions.append(self.generate_pc_instruction(line.strip()))
-        
+                self._pc_questions.append(
+                    self.generate_pc_instruction(line.strip()))
+
         self._custom_prompts = custom_prompts
-        self._custom_prompts = [self.format_instruction(q) for q in self._custom_prompts]
-        
+        self._custom_prompts = [self.format_instruction(
+            q) for q in self._custom_prompts]
+
         self._pc_num_questions = len(self._pc_questions)
         self._pc_csv_file = f"{self._output_dir}/pc.csv"
         self._pc_headers = ['iteration', 'step'] + \
-                    [f"question_{str(i)}" for i in range(self._pc_num_questions)]
+            [f"question_{str(i)}" for i in range(self._pc_num_questions)]
         with open(self._pc_csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(self._pc_headers)
-        
+
         self._custom_prompts_file = f"{self._output_dir}/custom_instrs.csv"
         headers = ['iteration', 'step'] + \
-                [f"prompt_{str(i)}" for i in range(len(self._custom_prompts))]
+            [f"prompt_{str(i)}" for i in range(len(self._custom_prompts))]
         with open(self._custom_prompts_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(headers)
@@ -148,10 +146,10 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         log.info(f"Max generated tokens: {self._max_generated_tokens}")
         log.info(f"Temperature: {self._temperature}")
         log.info(f"Top k: {self._top_k}")
-    
+
     def format_instruction(self, instr, inp=""):
         return format_instruction(self._template, instr, inp)
-                
+
     def generate_pc_instruction(self, question):
         return self.format_instruction(self._pc_instruction, question)
 
@@ -207,7 +205,8 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         # log config with parameter override
         self._metric_logger.log_config(cfg)
 
-        checkpoint_dict = self.load_checkpoint(cfg_checkpointer=cfg.checkpointer)
+        checkpoint_dict = self.load_checkpoint(
+            cfg_checkpointer=cfg.checkpointer)
 
         self._model = self._setup_model(
             cfg_model=cfg.model,
@@ -265,11 +264,14 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
             num_training_steps=self.total_epochs * self._steps_per_epoch,
             last_epoch=self.global_step - 1,
         )
-        
-        self._pc_questions = [torch.tensor(self._tokenizer.encode(q, add_bos=True, add_eos=False), dtype=torch.int, device=self._device).to(self._device) for q in self._pc_questions[:]]
-        self._custom_prompts = [torch.tensor(self._tokenizer.encode(q, add_bos=True, add_eos=False) , dtype=torch.int, device=self._device).to(self._device) for q in self._custom_prompts[:]]
+
+        self._pc_questions = [torch.tensor(self._tokenizer.encode(
+            q, add_bos=True, add_eos=False), dtype=torch.int, device=self._device).to(self._device) for q in self._pc_questions[:]]
+        self._custom_prompts = [torch.tensor(self._tokenizer.encode(
+            q, add_bos=True, add_eos=False), dtype=torch.int, device=self._device).to(self._device) for q in self._custom_prompts[:]]
         self._causal_mask = torch.tril(
-            torch.ones(self._model.max_seq_len, self._model.max_seq_len, dtype=torch.bool)
+            torch.ones(self._model.max_seq_len,
+                       self._model.max_seq_len, dtype=torch.bool)
         ).to(self._device)
         self._kv_cache = []
         for _ in self._model.layers:
@@ -369,7 +371,8 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         """
         if isinstance(cfg_dataset, ListConfig):
             datasets = [
-                config.instantiate(single_cfg_dataset, tokenizer=self._tokenizer)
+                config.instantiate(single_cfg_dataset,
+                                   tokenizer=self._tokenizer)
                 for single_cfg_dataset in cfg_dataset
             ]
             ds = ConcatDataset(datasets=datasets)
@@ -396,10 +399,10 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         log.info("Dataset and Sampler are initialized.")
 
         return sampler, dataloader
+
     def eval_pc(self, iteration=0, step=0):
         return eval_pc(pc_questions=self._pc_questions, pc_csv_file=self._pc_csv_file, log=log, model=self._model, tokenizer=self._tokenizer, causal_mask=self._causal_mask, kv_cache=self._kv_cache, max_generated_tokens=self._max_generated_tokens, temperature=self._temperature, top_k=self._top_k, iteration=iteration, step=step)
-        
-        
+
     def eval_custom_prompts(self, iteration=0, step=0):
         return eval_custom_prompts(custom_prompts=self._custom_prompts, custom_prompts_file=self._custom_prompts_file, log=log, model=self._model, tokenizer=self._tokenizer, causal_mask=self._causal_mask, kv_cache=self._kv_cache, max_generated_tokens=self._max_generated_tokens, temperature=self._temperature, top_k=self._top_k, iteration=iteration, step=step)
 
@@ -440,7 +443,7 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
         ckpt_dict.update({utils.MODEL_KEY: {}})
 
         # Construct the adapter weights
-        adapter_key_filter = lambda x: x in self.adapter_params
+        def adapter_key_filter(x): return x in self.adapter_params
         adapter_state_dict = {
             k: v for k, v in self._model.state_dict().items() if adapter_key_filter(k)
         }
@@ -473,7 +476,8 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
 
         all_logits = model(concatenated_input_ids)
 
-        all_log_probs = self.get_batch_log_probs(all_logits, concatenated_labels)
+        all_log_probs = self.get_batch_log_probs(
+            all_logits, concatenated_labels)
 
         chosen_log_probs = all_log_probs[:len_chosen]
         rejected_log_probs = all_log_probs[len_chosen:]
@@ -545,13 +549,15 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
                     == self.max_steps_per_epoch
                 ):
                     break
-                
+
                 if idx % self._eval_freq == 0:
                     # Print the first training input decoded
                     self.eval_custom_prompts(iteration=curr_epoch, step=idx)
                     self.eval_pc(iteration=curr_epoch, step=idx)
-                    log.info(f"Saving checkpoint at {curr_epoch}_{str(idx).zfill(4)}")
-                    self.save_checkpoint(step=f"{curr_epoch}_{str(idx).zfill(4)}")
+                    log.info(
+                        f"Saving checkpoint at {curr_epoch}_{str(idx).zfill(4)}")
+                    self.save_checkpoint(
+                        step=f"{curr_epoch}_{str(idx).zfill(4)}")
                     sys.stdout.flush()
 
                 # batch is input_ids, labels
@@ -596,7 +602,6 @@ class LoRADPORecipeSingleDevice(FTRecipeInterface):
                     pbar.set_description(
                         f"{curr_epoch+1}|{self.global_step}|Loss: {loss_to_log}"
                     )
-
 
                     # Reset running stats for the next step
                     running_loss = 0
