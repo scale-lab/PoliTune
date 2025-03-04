@@ -1,7 +1,11 @@
+# Copyright (c) 2024 SCALE Lab, Brown University
+# Licensed under the MIT License (see LICENSE for details).
+
 from torchtune.data import AlpacaInstructTemplate
 from torchtune.datasets._preference import PreferenceDataset
 from torchtune.datasets._instruct import InstructDataset
 from torchtune.modules.tokenizers import Tokenizer
+
 
 def politune_right(
     tokenizer: Tokenizer,
@@ -43,5 +47,3 @@ def politune_left(
         max_seq_len=max_seq_len,
         split="train",
     )
-
-
